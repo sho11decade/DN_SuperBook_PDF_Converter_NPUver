@@ -442,3 +442,36 @@ Windows 上の Chrome や Acrobat Reader は、大量のページがある書籍
 
 糸冬了！！
 
+
+---
+
+## Minimal Python CLI (convertpdf)
+
+This repository now includes a minimal Python CLI skeleton that matches the NPU requirements. It copies PDFs to an output directory and can emit placeholder OCR outputs.
+
+### Usage
+
+```bash
+python convertpdf.py input.pdf -o output
+python convertpdf.py input_dir -o output --recursive
+python convertpdf.py input.pdf -o output --ocr
+python convertpdf.py input_dir -o output --recursive --ocr --config config.json
+```
+
+### Config file example
+
+```json
+{
+  "output_dir": "output",
+  "recursive": true,
+  "ocr": true
+}
+```
+
+YAML is supported if `PyYAML` is installed:
+
+```yaml
+output_dir: output
+recursive: true
+ocr: true
+```
