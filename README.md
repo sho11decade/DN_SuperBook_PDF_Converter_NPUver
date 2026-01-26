@@ -1,6 +1,8 @@
 
 # 1. DN_SuperBook_PDF_Converter - スキャン書籍 PDF をデジタル書籍並みに大変クリアに読みやすくし、AI-OCR 処理・HTML・Markdown 出力・図表抽出も可能な AI PDF 高品質化・各種調整ツール
 
+- Intel NPU 搭載 PC 向け Python 版の要件定義書: [REQUIREMENTS_NPU.md](REQUIREMENTS_NPU.md)
+
 2026/01/22 登 大遊
 
 **バージョンアップ履歴**  
