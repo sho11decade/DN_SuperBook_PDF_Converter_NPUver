@@ -6,28 +6,40 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 LOG = logging.getLogger("convertpdf")
 
 
 def detect_backend() -> str:
-    try:
-        if importlib.util.find_spec("openvino") or importlib.util.find_spec("openvino.runtime"):
+    """Detect NPU availability based on OpenVINO module presence (placeholder check)."""
+    for module_name in ("openvino.runtime", "openvino"):
+        try:
+            spec = importlib.util.find_spec(module_name)
+        except ModuleNotFoundError:
+            spec = None
+        if spec is not None:
             return "NPU"
-    except ModuleNotFoundError:
-        return "CPU"
     return "CPU"
 
 
 def load_config(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Config file not found: {path}") from exc
+    except PermissionError as exc:
+        raise RuntimeError(f"Config file not readable: {path}") from exc
     if path.suffix.lower() in {".yaml", ".yml"}:
         try:
             import yaml
         except ImportError as exc:
             raise RuntimeError("PyYAML is not installed; cannot read YAML config.") from exc
         return yaml.safe_load(text) or {}
-    return json.loads(text) or {}
+    try:
+        return json.loads(text) or {}
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid JSON config: {exc}") from exc
 
 
 def collect_pdfs(inputs: list[str], recursive: bool) -> list[tuple[Path, Path]]:
@@ -56,6 +68,8 @@ def collect_pdfs(inputs: list[str], recursive: bool) -> list[tuple[Path, Path]]:
 
 def write_ocr_placeholders(output_pdf: Path, source_pdf: Path) -> None:
     ocr_pdf = output_pdf.with_name(f"{output_pdf.stem}.ocr.pdf")
+    if ocr_pdf.exists():
+        ocr_pdf.unlink()
     shutil.copy2(output_pdf, ocr_pdf)
 
     html_path = output_pdf.with_suffix(".html")
@@ -77,7 +91,8 @@ def write_ocr_placeholders(output_pdf: Path, source_pdf: Path) -> None:
     )
 
 
-def merge_setting(cli_value, config, key, default):
+def merge_setting(cli_value: Any, config: dict, key: str, default: Any) -> Any:
+    """Return the CLI value if set, otherwise config value, otherwise default."""
     if cli_value is not None:
         return cli_value
     return config.get(key, default)
@@ -90,8 +105,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("inputs", nargs="+", help="PDF files or directories")
     parser.add_argument("-o", "--output-dir", default=None, help="Output directory")
-    parser.add_argument("-r", "--recursive", action="store_true", default=None, help="Recurse into directories")
-    parser.add_argument("--ocr", action="store_true", default=None, help="Emit OCR placeholder outputs")
+    parser.add_argument(
+        "-r",
+        "--recursive",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Recurse into directories",
+    )
+    parser.add_argument(
+        "--ocr",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Emit OCR placeholder outputs",
+    )
     parser.add_argument("--config", help="Config file (JSON/YAML)")
     return parser.parse_args()
 
@@ -104,13 +130,13 @@ def main() -> int:
     if args.config:
         try:
             config = load_config(Path(args.config))
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             LOG.error("Failed to load config: %s", exc)
             return 1
 
     output_dir = Path(merge_setting(args.output_dir, config, "output_dir", "output"))
-    recursive = bool(merge_setting(args.recursive, config, "recursive", False))
-    ocr = bool(merge_setting(args.ocr, config, "ocr", False))
+    recursive = merge_setting(args.recursive, config, "recursive", False)
+    ocr = merge_setting(args.ocr, config, "ocr", False)
 
     backend = detect_backend()
     if backend == "NPU":
@@ -124,7 +150,11 @@ def main() -> int:
         return 1
 
     for pdf_path, base_dir in pdfs:
-        relative = pdf_path.relative_to(base_dir)
+        try:
+            relative = pdf_path.relative_to(base_dir)
+        except ValueError:
+            # Fallback for unexpected path relationships (e.g., symlinks).
+            relative = Path(f"{pdf_path.stem}_{abs(hash(str(pdf_path)))}{pdf_path.suffix}")
         output_path = output_dir / relative
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(pdf_path, output_path)
